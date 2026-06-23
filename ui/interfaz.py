@@ -92,8 +92,8 @@ class InterfazApp:
         self.prob_fotografia = tk.DoubleVar(value=40)
         self.prob_cerveza = tk.DoubleVar(value=50)
 
-        self.param_j = tk.IntVar(value=0)
-        self.param_i = tk.IntVar(value=80)
+        self.param_j = tk.StringVar(value="0")
+        self.param_i = tk.StringVar(value="80")
         self.param_dias = tk.IntVar(value=1)
         self.param_iter_max = tk.IntVar(value=100000)
 
@@ -101,18 +101,71 @@ class InterfazApp:
         self.param_h = tk.DoubleVar(value=0.05)
         self.dist_salas = tk.StringVar(value="Normal")
 
+        # Nuevas variables faltantes del enunciado
+        self.folletos_media = tk.DoubleVar(value=10)
+        self.folletos_desv = tk.DoubleVar(value=5)
+        self.edad_media = tk.DoubleVar(value=30)
+
+        self.salas_pint_m1 = tk.DoubleVar(value=300); self.salas_pint_d1 = tk.DoubleVar(value=60)
+        self.salas_pint_m2 = tk.DoubleVar(value=220); self.salas_pint_d2 = tk.DoubleVar(value=60)
+        self.salas_pint_m3 = tk.DoubleVar(value=310); self.salas_pint_d3 = tk.DoubleVar(value=60)
+        self.salas_pint_m4 = tk.DoubleVar(value=350); self.salas_pint_d4 = tk.DoubleVar(value=60)
+
+        self.salas_foto_m1 = tk.DoubleVar(value=190); self.salas_foto_d1 = tk.DoubleVar(value=60)
+        self.salas_foto_m2 = tk.DoubleVar(value=200); self.salas_foto_d2 = tk.DoubleVar(value=60)
+        self.salas_foto_m3 = tk.DoubleVar(value=250); self.salas_foto_d3 = tk.DoubleVar(value=60)
+        self.salas_foto_m4 = tk.DoubleVar(value=180); self.salas_foto_d4 = tk.DoubleVar(value=60)
+
     # ------------------------------------------------------------------
     # Layout general: header + notebook con pestañas
     # ------------------------------------------------------------------
     def _crear_layout(self):
-        header = tk.Frame(self.root, bg=COLOR_BORGOÑA, height=64)
+        self.main_canvas = tk.Canvas(self.root, bg=COLOR_FONDO, highlightthickness=0)
+        self.main_scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=self.main_canvas.yview)
+        self.main_frame = ttk.Frame(self.main_canvas, style="TFrame")
+        
+        self.main_canvas.configure(yscrollcommand=self.main_scrollbar.set)
+        
+        self.main_scrollbar.pack(side="right", fill="y")
+        self.main_canvas.pack(side="left", fill="both", expand=True)
+        
+        self.main_window_id = self.main_canvas.create_window((0, 0), window=self.main_frame, anchor="nw")
+        
+        def _configure_main_frame(event):
+            self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
+            
+        def _configure_main_canvas(event):
+            if self.main_frame.winfo_reqwidth() < event.width:
+                self.main_canvas.itemconfigure(self.main_window_id, width=event.width)
+            else:
+                self.main_canvas.itemconfigure(self.main_window_id, width=self.main_frame.winfo_reqwidth())
+            
+            if self.main_frame.winfo_reqheight() < event.height:
+                self.main_canvas.itemconfigure(self.main_window_id, height=event.height)
+            else:
+                self.main_canvas.itemconfigure(self.main_window_id, height=self.main_frame.winfo_reqheight())
+
+        self.main_frame.bind("<Configure>", _configure_main_frame)
+        self.main_canvas.bind("<Configure>", _configure_main_canvas)
+        
+        def _on_mousewheel(event):
+            try:
+                w_class = event.widget.winfo_class()
+                if w_class not in ('Treeview', 'Listbox', 'Scrollbar', 'TCombobox'):
+                    self.main_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            except Exception:
+                pass
+
+        self.root.bind_all("<MouseWheel>", _on_mousewheel)
+
+        header = tk.Frame(self.main_frame, bg=COLOR_BORGOÑA, height=64)
         header.pack(fill="x", side="top")
         tk.Label(header, text="🏛  PALACIO FERREYRA", bg=COLOR_BORGOÑA, fg="white",
                  font=("Georgia", 18, "bold")).pack(side="left", padx=20, pady=10)
         tk.Label(header, text="Simulador de eventos discretos — TP5 Simulación 2026",
                  bg=COLOR_BORGOÑA, fg="#EBD9D9", font=("Segoe UI", 10, "italic")).pack(side="left", pady=10)
 
-        cuerpo = ttk.Frame(self.root, style="TFrame")
+        cuerpo = ttk.Frame(self.main_frame, style="TFrame")
         cuerpo.pack(fill="both", expand=True, padx=12, pady=12)
 
         self.notebook = ttk.Notebook(cuerpo)
@@ -137,7 +190,7 @@ class InterfazApp:
         self._armar_tab_15min()
 
         # Barra de estado
-        self.lbl_estado = tk.Label(self.root, text="Listo para simular. Configurá los parámetros y presioná Iniciar.",
+        self.lbl_estado = tk.Label(self.main_frame, text="Listo para simular. Configurá los parámetros y presioná Iniciar.",
                                     bg=COLOR_DORADO, fg="white", font=("Segoe UI", 9), anchor="w")
         self.lbl_estado.pack(fill="x", side="bottom")
 
@@ -157,19 +210,27 @@ class InterfazApp:
         self._fila_param(frame_puertas, 2, "Puerta C (desde 14 hs):", self.media_c, self.desv_c)
 
         # --- Panel de Cerveza y probabilidades ---
-        frame_cerveza = self._crear_panel(contenedor, "Stand de cerveza y probabilidades del recorrido (%)")
-        ttk.Label(frame_cerveza, text="Servicio cerveza (min, max seg — Uniforme):", style="Panel.TLabel").grid(row=0, column=0, sticky="w", padx=10, pady=6)
-        ttk.Entry(frame_cerveza, textvariable=self.cerveza_min, width=8).grid(row=0, column=1, padx=4)
-        ttk.Entry(frame_cerveza, textvariable=self.cerveza_max, width=8).grid(row=0, column=2, padx=4)
+        frame_cerveza = self._crear_panel(contenedor, "Stand de cerveza, Informes y Probabilidades")
+        
+        ttk.Label(frame_cerveza, text="Atención Folletos (media, desv seg):", style="Panel.TLabel").grid(row=0, column=0, sticky="w", padx=10, pady=6)
+        ttk.Entry(frame_cerveza, textvariable=self.folletos_media, width=8).grid(row=0, column=1, padx=4)
+        ttk.Entry(frame_cerveza, textvariable=self.folletos_desv, width=8).grid(row=0, column=2, padx=4)
 
-        ttk.Label(frame_cerveza, text="% que pide folletos:", style="Panel.TLabel").grid(row=1, column=0, sticky="w", padx=10, pady=6)
-        ttk.Entry(frame_cerveza, textvariable=self.prob_folletos, width=8).grid(row=1, column=1, padx=4)
+        ttk.Label(frame_cerveza, text="Servicio cerveza (min, max seg):", style="Panel.TLabel").grid(row=1, column=0, sticky="w", padx=10, pady=6)
+        ttk.Entry(frame_cerveza, textvariable=self.cerveza_min, width=8).grid(row=1, column=1, padx=4)
+        ttk.Entry(frame_cerveza, textvariable=self.cerveza_max, width=8).grid(row=1, column=2, padx=4)
+        
+        ttk.Label(frame_cerveza, text="Edad media cerveza (años):", style="Panel.TLabel").grid(row=1, column=3, sticky="w", padx=10, pady=6)
+        ttk.Entry(frame_cerveza, textvariable=self.edad_media, width=8).grid(row=1, column=4, padx=4)
 
-        ttk.Label(frame_cerveza, text="% que va a Fotografía tras Pintura:", style="Panel.TLabel").grid(row=2, column=0, sticky="w", padx=10, pady=6)
-        ttk.Entry(frame_cerveza, textvariable=self.prob_fotografia, width=8).grid(row=2, column=1, padx=4)
+        ttk.Label(frame_cerveza, text="% que pide folletos:", style="Panel.TLabel").grid(row=2, column=0, sticky="w", padx=10, pady=6)
+        ttk.Entry(frame_cerveza, textvariable=self.prob_folletos, width=8).grid(row=2, column=1, padx=4)
 
-        ttk.Label(frame_cerveza, text="% que degusta cerveza (de los que van a Foto):", style="Panel.TLabel").grid(row=3, column=0, sticky="w", padx=10, pady=6)
-        ttk.Entry(frame_cerveza, textvariable=self.prob_cerveza, width=8).grid(row=3, column=1, padx=4)
+        ttk.Label(frame_cerveza, text="% que va a Fotografía tras Pintura:", style="Panel.TLabel").grid(row=3, column=0, sticky="w", padx=10, pady=6)
+        ttk.Entry(frame_cerveza, textvariable=self.prob_fotografia, width=8).grid(row=3, column=1, padx=4)
+
+        ttk.Label(frame_cerveza, text="% que degusta cerveza (de los que van a Foto):", style="Panel.TLabel").grid(row=4, column=0, sticky="w", padx=10, pady=6)
+        ttk.Entry(frame_cerveza, textvariable=self.prob_cerveza, width=8).grid(row=4, column=1, padx=4)
 
         # --- Panel de control de simulación ---
         frame_control = self._crear_panel(contenedor, "Control de la simulación y Parámetros Extra")
@@ -195,6 +256,24 @@ class InterfazApp:
         ttk.Label(frame_control, text="Distribución para Salas:", style="Panel.TLabel").grid(row=3, column=0, sticky="w", padx=10, pady=6)
         cb_dist = ttk.Combobox(frame_control, textvariable=self.dist_salas, values=["Normal", "Uniforme"], state="readonly", width=12)
         cb_dist.grid(row=3, column=1, padx=4)
+
+        # --- Panel de Tiempos de Salas ---
+        frame_salas = self._crear_panel(contenedor, "Tiempos en Salas por Horario (Media, Desv)")
+        ttk.Label(frame_salas, text="Pintura", style="Subtitulo.TLabel").grid(row=0, column=1, columnspan=2, pady=2)
+        ttk.Label(frame_salas, text="Fotografía", style="Subtitulo.TLabel").grid(row=0, column=3, columnspan=2, pady=2)
+        
+        horarios = ["9 a 12 hs", "12 a 14 hs", "14 a 18 hs", "18 a 22 hs"]
+        vars_pint = [(self.salas_pint_m1, self.salas_pint_d1), (self.salas_pint_m2, self.salas_pint_d2), 
+                     (self.salas_pint_m3, self.salas_pint_d3), (self.salas_pint_m4, self.salas_pint_d4)]
+        vars_foto = [(self.salas_foto_m1, self.salas_foto_d1), (self.salas_foto_m2, self.salas_foto_d2), 
+                     (self.salas_foto_m3, self.salas_foto_d3), (self.salas_foto_m4, self.salas_foto_d4)]
+        
+        for i, (h, vp, vf) in enumerate(zip(horarios, vars_pint, vars_foto)):
+            ttk.Label(frame_salas, text=h, style="Panel.TLabel").grid(row=i+1, column=0, padx=10)
+            ttk.Entry(frame_salas, textvariable=vp[0], width=6).grid(row=i+1, column=1, padx=2)
+            ttk.Entry(frame_salas, textvariable=vp[1], width=6).grid(row=i+1, column=2, padx=(2, 20))
+            ttk.Entry(frame_salas, textvariable=vf[0], width=6).grid(row=i+1, column=3, padx=2)
+            ttk.Entry(frame_salas, textvariable=vf[1], width=6).grid(row=i+1, column=4, padx=2)
 
         btn_simular = ttk.Button(contenedor, text="▶  Iniciar Simulación", style="Accion.TButton",
                                   command=self.ejecutar_simulacion)
@@ -231,20 +310,36 @@ class InterfazApp:
         panel_split = ttk.Frame(contenedor, style="TFrame")
         panel_split.pack(fill="both", expand=True)
 
+        # --- Controles Superiores ---
+        frame_controles = ttk.Frame(panel_split, style="TFrame")
+        frame_controles.pack(side="top", fill="x", pady=(0, 10))
+
+        ttk.Label(frame_controles, text="Desde iteración (j):", style="Panel.TLabel").pack(side="left", padx=(0, 5))
+        ttk.Entry(frame_controles, textvariable=self.param_j, width=10).pack(side="left", padx=5)
+
+        ttk.Label(frame_controles, text="Cantidad a mostrar (i):", style="Panel.TLabel").pack(side="left", padx=(20, 5))
+        ttk.Entry(frame_controles, textvariable=self.param_i, width=10).pack(side="left", padx=5)
+
+        ttk.Button(frame_controles, text="Actualizar Vista", style="Accion.TButton", command=self.actualizar_vista_vector).pack(side="left", padx=20)
+
         # --- Tabla principal (iteraciones) ---
         frame_tabla = ttk.Frame(panel_split, style="TFrame")
         frame_tabla.pack(side="top", fill="both", expand=True)
 
         columnas = ('Iteracion', 'Dia', 'Hora', 'Reloj_Global', 'Evento',
+                    'ProxA', 'RNDA', 'ProxB', 'RNDB', 'ProxC', 'RNDC',
                     'ColaV1', 'ColaV2', 'Pintura', 'ColaCerveza', 'ServLibres', 'Fotografia', 'Activos')
         self.tree = ttk.Treeview(frame_tabla, columns=columnas, show='headings', height=14)
         encabezados = {
             'Iteracion': 'Iter.', 'Dia': 'Día', 'Hora': 'Hora', 'Reloj_Global': 'Reloj (s)',
-            'Evento': 'Evento', 'ColaV1': 'Cola V1', 'ColaV2': 'Cola V2', 'Pintura': 'En Pintura',
+            'Evento': 'Evento', 
+            'ProxA': 'Próx. A', 'RNDA': 'RND L. A', 'ProxB': 'Próx. B', 'RNDB': 'RND L. B', 'ProxC': 'Próx. C', 'RNDC': 'RND L. C',
+            'ColaV1': 'Cola V1', 'ColaV2': 'Cola V2', 'Pintura': 'En Pintura',
             'ColaCerveza': 'Cola Cerveza', 'ServLibres': 'Serv. Libres', 'Fotografia': 'En Fotografía',
             'Activos': '# Activos'
         }
         anchos = {'Iteracion': 50, 'Dia': 40, 'Hora': 65, 'Reloj_Global': 80, 'Evento': 170,
+                  'ProxA': 65, 'RNDA': 80, 'ProxB': 65, 'RNDB': 80, 'ProxC': 65, 'RNDC': 80,
                   'ColaV1': 65, 'ColaV2': 65, 'Pintura': 75, 'ColaCerveza': 90, 'ServLibres': 85,
                   'Fotografia': 90, 'Activos': 70}
         for col in columnas:
@@ -267,11 +362,13 @@ class InterfazApp:
         frame_detalle = ttk.Labelframe(panel_split, text="Detalle de visitantes activos en la fila seleccionada", style="TLabelframe")
         frame_detalle.pack(side="bottom", fill="both", expand=False, pady=(10, 0))
 
-        columnas_det = ('ID', 'Puerta', 'Edad', 'RND_Edad', 'Estado', 'Sala', 'Llegada')
+        columnas_det = ('ID', 'Puerta', 'Edad', 'RND_Edad', 'Estado', 'Sala', 'Llegada', 
+                        'RND_Foll', 'RND_Vent', 'RND_T_Foll', 'RND_T_Pint', 'RND_Foto', 'RND_Cerv', 'RND_T_Cerv','RND_T_Foto')
         self.tree_detalle = ttk.Treeview(frame_detalle, columns=columnas_det, show='headings', height=8)
         for col in columnas_det:
             self.tree_detalle.heading(col, text=col)
-            self.tree_detalle.column(col, width=110, anchor="center")
+            # Achicamos un poco el ancho para que entren
+            self.tree_detalle.column(col, width=80, anchor="center")
         scroll_det = ttk.Scrollbar(frame_detalle, orient="vertical", command=self.tree_detalle.yview)
         self.tree_detalle.configure(yscrollcommand=scroll_det.set)
         self.tree_detalle.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
@@ -294,9 +391,56 @@ class InterfazApp:
         for vis in fila.get('Visitantes_Activos_Detalle', []):
             self.tree_detalle.insert('', 'end', values=(
                 vis['ID'], vis['Puerta'], vis['Edad'], vis['RND_Edad'],
-                vis['Estado'], vis['Sala'], vis['Llegada']
+                vis['Estado'], vis['Sala'], vis['Llegada'],
+                vis.get('RND_Dec_Folletos', ''), vis.get('RND_Vent_Elegida', ''),
+                vis.get('RND_Tiempo_Foll', ''), vis.get('RND_Tiempo_Pintura', ''),
+                vis.get('RND_Dec_Foto', ''), vis.get('RND_Dec_Cerveza', ''),
+                vis.get('RND_Tiempo_Cerveza', ''),
+                vis.get('RND_Tiempo_Foto', '')
             ))
 
+    def actualizar_vista_vector(self):
+        if not hasattr(self, 'todas_las_filas_simulacion'):
+            messagebox.showinfo("Atención", "Primero debés ejecutar una simulación.")
+            return
+            
+        j_str = self.param_j.get().strip()
+        if not j_str.isdigit():
+            messagebox.showerror("Error", "El valor de j debe ser un número entero.")
+            return
+        desde_j = int(j_str)
+        
+        i_str = self.param_i.get().strip()
+        if i_str == "":
+            cantidad_i = float('inf')
+        elif not i_str.isdigit():
+            messagebox.showerror("Error", "El valor de i debe ser un número entero o estar vacío.")
+            return
+        else:
+            cantidad_i = int(i_str)
+
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+            
+        filas_a_mostrar = [
+            f for f in self.todas_las_filas_simulacion 
+            if desde_j <= f['Iteracion'] <= (desde_j + cantidad_i)
+        ]
+        
+        self._filas_guardadas = filas_a_mostrar
+        for fila in filas_a_mostrar:
+            self.tree.insert('', 'end', values=(
+                fila['Iteracion'], fila['Dia'], fila['Hora_Aprox'], fila['Reloj_Global'], fila['Evento'],
+                fila.get('Prox_Lleg_A', ''), fila.get('RND_Lleg_A', ''),
+                fila.get('Prox_Lleg_B', ''), fila.get('RND_Lleg_B', ''),
+                fila.get('Prox_Lleg_C', ''), fila.get('RND_Lleg_C', ''),
+                fila['En_Cola_Informes_V1'], fila['En_Cola_Informes_V2'], fila['En_Pintura'],
+                fila['En_Cola_Cerveza'], fila['Servidores_Cerveza_Libres'], fila['En_Fotografia'],
+                fila['Cantidad_Visitantes_Activos']
+            ))
+
+        for row in self.tree_detalle.get_children():
+            self.tree_detalle.delete(row)
     # ------------------------------------------------------------------
     # TAB 3: Métricas
     # ------------------------------------------------------------------
@@ -329,19 +473,21 @@ class InterfazApp:
 
         self._fila_metrica(self.frame_obligatorias, 0, "Tiempo promedio de permanencia en la exposición:",
                             f"{metricas['prom_permanencia']:.2f} seg")
-        self._fila_metrica(self.frame_obligatorias, 1, "Tiempo promedio en cola de informes (folletos):",
-                            f"{metricas['prom_cola_informes']:.2f} seg")
-        self._fila_metrica(self.frame_obligatorias, 2, "Visitantes totales ingresados:",
+        self._fila_metrica(self.frame_obligatorias, 1, "Tiempo promedio en cola V1:",
+                            f"{metricas.get('prom_cola_v1', 0):.2f} seg")
+        self._fila_metrica(self.frame_obligatorias, 2, "Tiempo promedio en cola V2:",
+                            f"{metricas.get('prom_cola_v2', 0):.2f} seg")
+        self._fila_metrica(self.frame_obligatorias, 3, "Visitantes totales ingresados:",
                             f"{metricas['visitantes_totales']}")
-        self._fila_metrica(self.frame_obligatorias, 3, "Visitantes que finalizaron su recorrido:",
+        self._fila_metrica(self.frame_obligatorias, 4, "Visitantes que finalizaron su recorrido:",
                             f"{metricas['visitantes_finalizados']}")
 
         self._fila_metrica(self.frame_extra, 0, "1. Total de visitantes que solicitaron folletos:",
                             f"{metricas['total_folletos']}")
-        self._fila_metrica(self.frame_extra, 1, "2. Total de cervezas servidas:",
-                            f"{metricas['total_cervezas']}")
-        self._fila_metrica(self.frame_extra, 2, "3. Edad promedio de quienes degustaron cerveza:",
+        self._fila_metrica(self.frame_extra, 1, "2. Edad promedio de quienes degustaron cerveza:",
                             f"{metricas['prom_edad_cerveza']:.1f} años")
+        self._fila_metrica(self.frame_extra, 2, "3. Máxima longitud alcanzada en cola de cerveza:",
+                            f"{metricas.get('max_cola_cerveza', 0)}")
         self._fila_metrica(self.frame_extra, 3, "4. Total de visitantes que entraron a Fotografía:",
                             f"{metricas['total_fotografia']}")
         self._fila_metrica(self.frame_extra, 4, "5. Personas que abandonaron tras Pintura (no fueron a Foto):",
@@ -377,12 +523,16 @@ class InterfazApp:
         frame_tabla_rk = ttk.Labelframe(panel, text="Pasos calculados", style="TLabelframe")
         frame_tabla_rk.pack(side="left", fill="both", expand=True)
 
-        self.tree_rk = ttk.Treeview(frame_tabla_rk, columns=('t', 'C', 'dCdt'), show='headings')
+        self.tree_rk = ttk.Treeview(frame_tabla_rk, columns=('t', 'C', 'dCdt', 'k1', 'k2', 'k3', 'k4'), show='headings')
         self.tree_rk.heading('t', text='t')
         self.tree_rk.heading('C', text='C(t)')
         self.tree_rk.heading('dCdt', text='dC/dt')
-        for c in ('t', 'C', 'dCdt'):
-            self.tree_rk.column(c, width=120, anchor="center")
+        self.tree_rk.heading('k1', text='k1')
+        self.tree_rk.heading('k2', text='k2')
+        self.tree_rk.heading('k3', text='k3')
+        self.tree_rk.heading('k4', text='k4')
+        for c in ('t', 'C', 'dCdt', 'k1', 'k2', 'k3', 'k4'):
+            self.tree_rk.column(c, width=100, anchor="center")
         scroll_rk = ttk.Scrollbar(frame_tabla_rk, orient="vertical", command=self.tree_rk.yview)
         self.tree_rk.configure(yscrollcommand=scroll_rk.set)
         self.tree_rk.pack(side="left", fill="both", expand=True, padx=8, pady=8)
@@ -403,7 +553,7 @@ class InterfazApp:
             self.tree_rk.delete(row)
 
         for _, fila in tabla.iterrows():
-            self.tree_rk.insert('', 'end', values=(fila['t'], fila['C(t)'], fila['dC/dt']))
+            self.tree_rk.insert('', 'end', values=(fila['t'], fila['C(t)'], fila['dC/dt'], fila['k1'], fila['k2'], fila['k3'], fila['k4']))
 
     def _actualizar_rk(self, tablas_dict):
         self.lista_rk.delete(0, tk.END)
@@ -458,6 +608,22 @@ class InterfazApp:
                 'puerta_b': (self.media_b.get(), self.desv_b.get()),
                 'puerta_c': (self.media_c.get(), self.desv_c.get()),
                 'cerveza': (self.cerveza_min.get(), self.cerveza_max.get()),
+                'folletos': (self.folletos_media.get(), self.folletos_desv.get()),
+                'edad_media': self.edad_media.get(),
+                'salas': {
+                    'Pintura': {
+                        '9_12': (self.salas_pint_m1.get(), self.salas_pint_d1.get()),
+                        '12_14': (self.salas_pint_m2.get(), self.salas_pint_d2.get()),
+                        '14_18': (self.salas_pint_m3.get(), self.salas_pint_d3.get()),
+                        '18_22': (self.salas_pint_m4.get(), self.salas_pint_d4.get())
+                    },
+                    'Fotografia': {
+                        '9_12': (self.salas_foto_m1.get(), self.salas_foto_d1.get()),
+                        '12_14': (self.salas_foto_m2.get(), self.salas_foto_d2.get()),
+                        '14_18': (self.salas_foto_m3.get(), self.salas_foto_d3.get()),
+                        '18_22': (self.salas_foto_m4.get(), self.salas_foto_d4.get())
+                    }
+                },
                 'dias': max(1, self.param_dias.get()),
                 'prob_folletos': self.prob_folletos.get() / 100.0,
                 'prob_fotografia': self.prob_fotografia.get() / 100.0,
@@ -472,27 +638,29 @@ class InterfazApp:
 
         iter_max = min(100000, max(1, self.param_iter_max.get()))
 
+        j_str = self.param_j.get().strip()
+        if not j_str.isdigit():
+            messagebox.showerror("Error", "El valor de j debe ser un número entero.")
+            return
+        param_j_val = int(j_str)
+
+        i_str = self.param_i.get().strip()
+        if i_str == "":
+            param_i_val = 9999999
+        elif not i_str.isdigit():
+            messagebox.showerror("Error", "El valor de i debe ser un número entero o estar vacío.")
+            return
+        else:
+            param_i_val = int(i_str)
+
         self.lbl_estado.config(text="Simulando... esto puede tardar unos segundos.")
         self.root.update_idletasks()
 
         self.simulador_actual = Simulador(parametros)
-        resultados = self.simulador_actual.simular(iter_max, self.param_j.get(), self.param_i.get())
+        resultados = self.simulador_actual.simular(iter_max, param_j_val, param_i_val)
 
-        # --- Vector de estado ---
-        for row in self.tree.get_children():
-            self.tree.delete(row)
-        self._filas_guardadas = resultados
-
-        for fila in resultados:
-            self.tree.insert('', 'end', values=(
-                fila['Iteracion'], fila['Dia'], fila['Hora_Aprox'], fila['Reloj_Global'], fila['Evento'],
-                fila['En_Cola_Informes_V1'], fila['En_Cola_Informes_V2'], fila['En_Pintura'],
-                fila['En_Cola_Cerveza'], fila['Servidores_Cerveza_Libres'], fila['En_Fotografia'],
-                fila['Cantidad_Visitantes_Activos']
-            ))
-
-        for row in self.tree_detalle.get_children():
-            self.tree_detalle.delete(row)
+        self.todas_las_filas_simulacion = resultados
+        self.actualizar_vista_vector()
 
         # --- Métricas ---
         metricas = self.simulador_actual.obtener_metricas()

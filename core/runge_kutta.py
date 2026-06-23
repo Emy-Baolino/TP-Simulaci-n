@@ -14,21 +14,25 @@ def calcular_tiempo_degustacion(edad, h):
     while True:
         dC_dt = ((t ** 2) - C) * (h ** 2)
 
+        # 4 pendientes de Runge-Kutta de orden 4
+        k1 = dC_dt
+        k2 = (((t + h / 2) ** 2) - (C + (h / 2) * k1)) * (h ** 2)
+        k3 = (((t + h / 2) ** 2) - (C + (h / 2) * k2)) * (h ** 2)
+        k4 = (((t + h) ** 2) - (C + h * k3)) * (h ** 2)
+
         tabla_rk.append({
             "t": round(t, 4),
             "C(t)": round(C, 6),
             "dC/dt": round(dC_dt, 6),
+            "k1": round(k1, 6),
+            "k2": round(k2, 6),
+            "k3": round(k3, 6),
+            "k4": round(k4, 6)
         })
 
         # Cortamos cuando la velocidad de C se vuelve positiva
         if dC_dt > 0:
             break
-
-        # 4 pendientes de Runge-Kutta de orden 4
-        k1 = ((t ** 2) - C) * (h ** 2)
-        k2 = (((t + h / 2) ** 2) - (C + (h / 2) * k1)) * (h ** 2)
-        k3 = (((t + h / 2) ** 2) - (C + (h / 2) * k2)) * (h ** 2)
-        k4 = (((t + h) ** 2) - (C + h * k3)) * (h ** 2)
 
         C_siguiente = C + (h / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
 

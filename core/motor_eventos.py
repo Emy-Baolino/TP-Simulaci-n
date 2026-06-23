@@ -60,8 +60,10 @@ class Simulador:
         self.personas_en_fotografia = 0
 
         # --- MÉTRICAS OBLIGATORIAS ---
-        self.acumulador_espera_informes = 0.0
-        self.visitantes_esperaron_informes = 0
+        self.acumulador_espera_v1 = 0.0
+        self.visitantes_esperaron_v1 = 0
+        self.acumulador_espera_v2 = 0.0
+        self.visitantes_esperaron_v2 = 0
         self.acumulador_tiempo_permanencia = 0.0
         self.visitantes_finalizados = 0
         self.metricas_15_min = []
@@ -72,7 +74,10 @@ class Simulador:
         self.metrica_suma_edades_cerveza = 0.0           #    (auxiliar para promedio de edad)
         self.metrica_total_fotografia = 0                # 3) visitantes que entraron a fotografía
         self.metrica_abandonos_post_pintura = 0          # 4) personas que se van tras pintura (no van a foto)
-                      # 5) máxima longitud alcanzada por la cola de cerveza
+        self.max_cola_cerveza = 0                      # 5) máxima longitud alcanzada por la cola de cerveza
+
+        # Almacenamiento de RNDs de próximas llegadas
+        self.prox_llegadas_rnd = {'A': "", 'B': "", 'C': ""}
 
         # Tablas de Runge-Kutta generadas, para mostrarlas en la interfaz
         self.tablas_rk_generadas = {}
@@ -109,9 +114,13 @@ class Simulador:
         media_b, desv_b = self.parametros['puerta_b']
         media_c, desv_c = self.parametros['puerta_c']
 
-        t_a, _, _ = self.generar_normal(media_a, desv_a)
-        t_b, _, _ = self.generar_normal(media_b, desv_b)
-        t_c, _, _ = self.generar_normal(media_c, desv_c)
+        t_a, rnd1_a, rnd2_a = self.generar_normal(media_a, desv_a)
+        t_b, rnd1_b, rnd2_b = self.generar_normal(media_b, desv_b)
+        t_c, rnd1_c, rnd2_c = self.generar_normal(media_c, desv_c)
+
+        self.prox_llegadas_rnd['A'] = f"{rnd1_a:.4f}, {rnd2_a:.4f}"
+        self.prox_llegadas_rnd['B'] = f"{rnd1_b:.4f}, {rnd2_b:.4f}"
+        self.prox_llegadas_rnd['C'] = f"{rnd1_c:.4f}, {rnd2_c:.4f}"
 
         self.eventos['Llegada_A'] = self.reloj + t_a
         # Puerta B arranca 2 hs después de abierto el palacio (11 hs)
@@ -153,17 +162,12 @@ class Simulador:
     def determinar_tiempo_sala(self, sala):
         hora_actual = 9 + (self.reloj_dia / 3600)
         
-        # Mapeo de medias y desvíos/tolerancias según la hora
-        if sala == "Pintura":
-            if 9 <= hora_actual < 12: media, desv = 300, 60
-            elif 12 <= hora_actual < 14: media, desv = 220, 60
-            elif 14 <= hora_actual < 18: media, desv = 310, 60
-            else: media, desv = 350, 60
-        elif sala == "Fotografia":
-            if 9 <= hora_actual < 12: media, desv = 190, 60
-            elif 12 <= hora_actual < 14: media, desv = 200, 60
-            elif 14 <= hora_actual < 18: media, desv = 250, 60
-            else: media, desv = 180, 60
+        # Mapeo de medias y desvíos/tolerancias según la hora (desde los parámetros)
+        tiempos = self.parametros['salas'][sala]
+        if 9 <= hora_actual < 12: media, desv = tiempos['9_12']
+        elif 12 <= hora_actual < 14: media, desv = tiempos['12_14']
+        elif 14 <= hora_actual < 18: media, desv = tiempos['14_18']
+        else: media, desv = tiempos['18_22']
 
         if self.dist_salas == "Uniforme":
 
@@ -199,6 +203,12 @@ class Simulador:
             'En_Cola_Cerveza': len(self.cola_cerveza),
             'Servidores_Cerveza_Libres': self.servidores_cerveza,
             'En_Fotografia': self.personas_en_fotografia,
+            'Prox_Lleg_A': round(self.eventos.get('Llegada_A', 0), 2),
+            'RND_Lleg_A': self.prox_llegadas_rnd.get('A', ''),
+            'Prox_Lleg_B': round(self.eventos.get('Llegada_B', 0), 2),
+            'RND_Lleg_B': self.prox_llegadas_rnd.get('B', ''),
+            'Prox_Lleg_C': round(self.eventos.get('Llegada_C', 0), 2),
+            'RND_Lleg_C': self.prox_llegadas_rnd.get('C', ''),
             'Visitantes_Activos_Detalle': visitantes_snapshot,
             'Cantidad_Visitantes_Activos': len(visitantes_snapshot),
         }
@@ -251,10 +261,12 @@ class Simulador:
                 clave_param = {'A': 'puerta_a', 'B': 'puerta_b', 'C': 'puerta_c'}[puerta]
                 media, desv = self.parametros[clave_param]
                 t_next, rnd1, rnd2 = self.generar_normal(media, desv)
+                self.prox_llegadas_rnd[puerta] = f"{rnd1:.4f}, {rnd2:.4f}"
                 self.eventos[evento_actual] = self.reloj + t_next
 
                 self.visitantes_totales += 1
-                nuevo = Visitante(self.visitantes_totales, self.reloj, puerta)
+                media_edad = self.parametros.get('edad_media', 30)
+                nuevo = Visitante(self.visitantes_totales, self.reloj, puerta, media_edad)
                 self.visitantes_activos[nuevo.id] = nuevo
                 self.visitantes_historicos[nuevo.id] = nuevo
 
@@ -270,7 +282,8 @@ class Simulador:
 
                     if self.ventanillas[v_elegida]['libres'] > 0:
                         self.ventanillas[v_elegida]['libres'] -= 1
-                        t_folletos, rnd_f = self.generar_uniforme(5, 15)
+                        media_f, desv_f = self.parametros['folletos']
+                        t_folletos, rnd_f = self.generar_uniforme(media_f - desv_f, media_f + desv_f)
                         nuevo.rnd_tiempo_folletos = rnd_f
                         nuevo.estado = "En ventanilla"
                         nuevo.sala_actual = f"Ventanilla {v_elegida}"
@@ -311,12 +324,17 @@ class Simulador:
                     siguiente = self.ventanillas[v_id]['cola'].pop(0)
 
                     tiempo_esperado = self.reloj - siguiente.inicio_cola_informes
-                    self.acumulador_espera_informes += tiempo_esperado
-                    self.visitantes_esperaron_informes += 1
+                    if v_id == 1:
+                        self.acumulador_espera_v1 += tiempo_esperado
+                        self.visitantes_esperaron_v1 += 1
+                    else:
+                        self.acumulador_espera_v2 += tiempo_esperado
+                        self.visitantes_esperaron_v2 += 1
 
                     siguiente.estado = "En ventanilla"
                     siguiente.sala_actual = f"Ventanilla {v_id}"
-                    t_folletos, rnd_f = self.generar_uniforme(5, 15)
+                    media_f, desv_f = self.parametros['folletos']
+                    t_folletos, rnd_f = self.generar_uniforme(media_f - desv_f, media_f + desv_f)
                     siguiente.rnd_tiempo_folletos = rnd_f
                     self.eventos[f'Fin_Folletos_{v_id}_{siguiente.id}'] = self.reloj + t_folletos
                     self.metrica_total_folletos += 1
@@ -357,6 +375,7 @@ class Simulador:
                             visitante.estado = "En cola de cerveza"
                             visitante.sala_actual = "Cola Cerveza"
                             self.cola_cerveza.append(visitante)
+                            self.max_cola_cerveza = max(self.max_cola_cerveza, len(self.cola_cerveza))
                          
                     else:
                         visitante.tomo_cerveza = False
@@ -364,6 +383,7 @@ class Simulador:
                         visitante.sala_actual = "Fotografia"
                         visitante.inicio_fotografia = self.reloj
                         t_foto, rnd_foto1, rnd_foto2 = self.determinar_tiempo_sala("Fotografia")
+                        visitante.rnd_tiempo_fotografia = (rnd_foto1, rnd_foto2)
                         self.eventos[f'Fin_Fotografia_{visitante.id}'] = self.reloj + t_foto
                 else:
                     # Se va del sistema directamente tras pintura
@@ -419,6 +439,7 @@ class Simulador:
                 visitante.sala_actual = "Fotografia"
                 visitante.inicio_fotografia = self.reloj
                 t_foto, rnd_foto1, rnd_foto2 = self.determinar_tiempo_sala("Fotografia")
+                visitante.rnd_tiempo_fotografia = (rnd_foto1, rnd_foto2)
                 self.eventos[f'Fin_Fotografia_{visitante.id}'] = self.reloj + t_foto
 
             # --- FIN DE RECORRIDO (sale de fotografía) ---
@@ -455,9 +476,8 @@ class Simulador:
                 del self.eventos[evento_actual]
 
             # --- GUARDADO DE LA FILA EN EL VECTOR DE ESTADO ---
-            if desde_j <= self.iteracion <= (desde_j + cantidad_i):
-                fila = self._snapshot_sistema(evento_actual)
-                self.vector_estado.append(fila)
+            fila = self._snapshot_sistema(evento_actual)
+            self.vector_estado.append(fila)
 
             self.iteracion += 1
 
@@ -471,9 +491,13 @@ class Simulador:
             self.acumulador_tiempo_permanencia / self.visitantes_finalizados
             if self.visitantes_finalizados > 0 else 0.0
         )
-        prom_cola_informes = (
-            self.acumulador_espera_informes / self.visitantes_esperaron_informes
-            if self.visitantes_esperaron_informes > 0 else 0.0
+        prom_cola_v1 = (
+            self.acumulador_espera_v1 / self.visitantes_esperaron_v1
+            if self.visitantes_esperaron_v1 > 0 else 0.0
+        )
+        prom_cola_v2 = (
+            self.acumulador_espera_v2 / self.visitantes_esperaron_v2
+            if self.visitantes_esperaron_v2 > 0 else 0.0
         )
         prom_edad_cerveza = (
             self.metrica_suma_edades_cerveza / self.metrica_total_cervezas
@@ -482,7 +506,8 @@ class Simulador:
 
         return {
             'prom_permanencia': prom_permanencia,
-            'prom_cola_informes': prom_cola_informes,
+            'prom_cola_v1': prom_cola_v1,
+            'prom_cola_v2': prom_cola_v2,
             'visitantes_totales': self.visitantes_totales,
             'visitantes_finalizados': self.visitantes_finalizados,
             'total_folletos': self.metrica_total_folletos,
@@ -490,5 +515,5 @@ class Simulador:
             'prom_edad_cerveza': prom_edad_cerveza,
             'total_fotografia': self.metrica_total_fotografia,
             'abandonos_post_pintura': self.metrica_abandonos_post_pintura,
-            
+            'max_cola_cerveza': self.max_cola_cerveza,
         }

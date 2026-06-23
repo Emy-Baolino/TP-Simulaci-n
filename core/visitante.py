@@ -12,14 +12,14 @@ class Visitante:
     tal como pide la consigna del TP.
     """
 
-    def __init__(self, id_visitante, reloj_llegada, puerta):
+    def __init__(self, id_visitante, reloj_llegada, puerta, media_edad=30):
         self.id = id_visitante
         self.reloj_llegada = reloj_llegada
         self.puerta = puerta  # 'A', 'B' o 'C'
 
-        # --- Edad (distribución exponencial, media 30 años) ---
+        # --- Edad (distribución exponencial, media parametrizable) ---
         self.rnd_edad = random.random()
-        edad_calc = -30 * math.log(1 - self.rnd_edad)
+        edad_calc = -media_edad * math.log(1 - self.rnd_edad)
         self.edad = int(edad_calc)  # truncada, como pide el enunciado
 
         # --- Estado dinámico del visitante a lo largo de la simulación ---
@@ -53,12 +53,25 @@ class Visitante:
         self.rnd_decision_fotografia = None
         self.rnd_decision_cerveza = None
         self.rnd_tiempo_cerveza = None
+        self.rnd_tiempo_fotografia = None
 
     def snapshot(self):
         """
         Devuelve un diccionario "plano" con el estado actual del visitante,
         listo para insertarse como columnas del vector de estado.
         """
+        # Preparar string para los RNDs del tiempo de pintura (puede ser tupla si es Normal)
+        rnd_pintura_str = ""
+        if isinstance(self.rnd_tiempo_pintura, tuple):
+            rnd_pintura_str = f"{self.rnd_tiempo_pintura[0]:.4f}, {self.rnd_tiempo_pintura[1]:.4f}"
+        elif self.rnd_tiempo_pintura is not None:
+            rnd_pintura_str = f"{self.rnd_tiempo_pintura:.4f}"
+
+        rnd_foto_str = ""
+        if isinstance(self.rnd_tiempo_fotografia, tuple):
+            rnd_foto_str = f"{self.rnd_tiempo_fotografia[0]:.4f}, {self.rnd_tiempo_fotografia[1]:.4f}"
+        elif self.rnd_tiempo_fotografia is not None:
+            rnd_foto_str = f"{self.rnd_tiempo_fotografia:.4f}"
         return {
             "ID": self.id,
             "Puerta": self.puerta,
@@ -67,4 +80,12 @@ class Visitante:
             "Estado": self.estado,
             "Sala": self.sala_actual,
             "Llegada": round(self.reloj_llegada, 2),
-        }
+            "RND_Dec_Folletos": round(self.rnd_decision_folletos, 4) if self.rnd_decision_folletos is not None else "",
+            "RND_Vent_Elegida": round(self.rnd_ventanilla_elegida, 4) if self.rnd_ventanilla_elegida is not None else "",
+            "RND_Tiempo_Foll": round(self.rnd_tiempo_folletos, 4) if self.rnd_tiempo_folletos is not None else "",
+            "RND_Tiempo_Pintura": rnd_pintura_str,
+            "RND_Dec_Foto": round(self.rnd_decision_fotografia, 4) if self.rnd_decision_fotografia is not None else "",
+            "RND_Dec_Cerveza": round(self.rnd_decision_cerveza, 4) if self.rnd_decision_cerveza is not None else "",
+            "RND_Tiempo_Cerveza": round(self.rnd_tiempo_cerveza, 4) if self.rnd_tiempo_cerveza is not None else "",
+            "RND_Tiempo_Foto": rnd_foto_str
+        }   

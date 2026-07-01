@@ -99,7 +99,6 @@ class InterfazApp:
 
         self.param_x = tk.DoubleVar(value=0.0)
         self.param_h = tk.DoubleVar(value=0.05)
-        self.dist_salas = tk.StringVar(value="Normal")
 
         # Nuevas variables faltantes del enunciado
         self.folletos_media = tk.DoubleVar(value=10)
@@ -120,52 +119,32 @@ class InterfazApp:
     # Layout general: header + notebook con pestañas
     # ------------------------------------------------------------------
     def _crear_layout(self):
-        self.main_canvas = tk.Canvas(self.root, bg=COLOR_FONDO, highlightthickness=0)
-        self.main_scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=self.main_canvas.yview)
-        self.main_frame = ttk.Frame(self.main_canvas, style="TFrame")
-        
-        self.main_canvas.configure(yscrollcommand=self.main_scrollbar.set)
-        
-        self.main_scrollbar.pack(side="right", fill="y")
-        self.main_canvas.pack(side="left", fill="both", expand=True)
-        
-        self.main_window_id = self.main_canvas.create_window((0, 0), window=self.main_frame, anchor="nw")
-        
-        def _configure_main_frame(event):
-            self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
-            
-        def _configure_main_canvas(event):
-            if self.main_frame.winfo_reqwidth() < event.width:
-                self.main_canvas.itemconfigure(self.main_window_id, width=event.width)
-            else:
-                self.main_canvas.itemconfigure(self.main_window_id, width=self.main_frame.winfo_reqwidth())
-            
-            if self.main_frame.winfo_reqheight() < event.height:
-                self.main_canvas.itemconfigure(self.main_window_id, height=event.height)
-            else:
-                self.main_canvas.itemconfigure(self.main_window_id, height=self.main_frame.winfo_reqheight())
-
-        self.main_frame.bind("<Configure>", _configure_main_frame)
-        self.main_canvas.bind("<Configure>", _configure_main_canvas)
-        
-        def _on_mousewheel(event):
-            try:
-                w_class = event.widget.winfo_class()
-                if w_class not in ('Treeview', 'Listbox', 'Scrollbar', 'TCombobox'):
-                    self.main_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-            except Exception:
-                pass
-
-        self.root.bind_all("<MouseWheel>", _on_mousewheel)
-
-        header = tk.Frame(self.main_frame, bg=COLOR_BORGOÑA, height=64)
+        # NOTA IMPORTANTE: antes toda la ventana (header + pestañas + barra de
+        # estado) estaba metida dentro de un Canvas "gigante" con scroll. El
+        # problema real era otro: un ttk.Notebook se dimensiona para poder
+        # mostrar SIEMPRE la pestaña más grande de todas (aunque no esté
+        # visible). Como la tabla de "Vector de Estado" tiene ~65 columnas
+        # anchas, el Notebook entero pedía un ancho enorme (varios miles de
+        # píxeles), y eso empujaba el botón "Iniciar Simulación" fuera de la
+        # pantalla y dejaba columnas de la tabla inalcanzables. Se corrige
+        # "aislando" cada pestaña (ver `.pack_propagate(False)` más abajo) y
+        # dándole scroll propio solo a la pestaña de Parámetros, que es la
+        # que puede llegar a no entrar completa en pantallas chicas.
+        header = tk.Frame(self.root, bg=COLOR_BORGOÑA, height=64)
         header.pack(fill="x", side="top")
+        header.pack_propagate(False)
         tk.Label(header, text="🏛  PALACIO FERREYRA", bg=COLOR_BORGOÑA, fg="white",
                  font=("Georgia", 18, "bold")).pack(side="left", padx=20, pady=10)
         tk.Label(header, text="Simulador de eventos discretos — TP5 Simulación 2026",
                  bg=COLOR_BORGOÑA, fg="#EBD9D9", font=("Segoe UI", 10, "italic")).pack(side="left", pady=10)
 
-        cuerpo = ttk.Frame(self.main_frame, style="TFrame")
+        # Barra de estado: se empaqueta ANTES que el cuerpo expandible para
+        # asegurar que siempre reserve su espacio abajo y nunca desaparezca.
+        self.lbl_estado = tk.Label(self.root, text="Listo para simular. Configurá los parámetros y presioná Iniciar.",
+                                    bg=COLOR_DORADO, fg="white", font=("Segoe UI", 9), anchor="w")
+        self.lbl_estado.pack(fill="x", side="bottom")
+
+        cuerpo = ttk.Frame(self.root, style="TFrame")
         cuerpo.pack(fill="both", expand=True, padx=12, pady=12)
 
         self.notebook = ttk.Notebook(cuerpo)
@@ -176,6 +155,14 @@ class InterfazApp:
         self.tab_metricas = ttk.Frame(self.notebook, style="TFrame")
         self.tab_rk = ttk.Frame(self.notebook, style="TFrame")
         self.tab_15min = ttk.Frame(self.notebook, style="TFrame")
+
+        # Evita que cada pestaña "infle" el tamaño pedido por el Notebook
+        # según el contenido de SUS hijos (esto es lo que causaba la
+        # ventana gigante). El tamaño real que ocupan lo sigue dando el
+        # propio Notebook (fill=both, expand=True) en tiempo de ejecución.
+        for tab in (self.tab_parametros, self.tab_vector, self.tab_metricas,
+                    self.tab_rk, self.tab_15min):
+            tab.pack_propagate(False)
 
         self.notebook.add(self.tab_parametros, text="⚙  Parámetros")
         self.notebook.add(self.tab_vector, text="📋  Vector de Estado")
@@ -189,17 +176,54 @@ class InterfazApp:
         self._armar_tab_rk()
         self._armar_tab_15min()
 
-        # Barra de estado
-        self.lbl_estado = tk.Label(self.main_frame, text="Listo para simular. Configurá los parámetros y presioná Iniciar.",
-                                    bg=COLOR_DORADO, fg="white", font=("Segoe UI", 9), anchor="w")
-        self.lbl_estado.pack(fill="x", side="bottom")
+    # ------------------------------------------------------------------
+    # Helper: convierte cualquier `parent` en un área con scroll vertical
+    # propio (canvas + scrollbar + rueda del mouse). Se usa en la pestaña
+    # de Parámetros para que, sin importar el tamaño de la ventana, siempre
+    # se pueda bajar hasta ver (y usar) el botón "Iniciar Simulación".
+    # ------------------------------------------------------------------
+    def _crear_area_scrollable(self, parent):
+        wrapper = ttk.Frame(parent, style="TFrame")
+        wrapper.pack(fill="both", expand=True)
+
+        canvas = tk.Canvas(wrapper, bg=COLOR_FONDO, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(wrapper, orient="vertical", command=canvas.yview)
+        frame_interior = ttk.Frame(canvas, style="TFrame", padding=20)
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        window_id = canvas.create_window((0, 0), window=frame_interior, anchor="nw")
+
+        def _actualizar_scrollregion(event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _ajustar_ancho(event):
+            canvas.itemconfigure(window_id, width=event.width)
+
+        frame_interior.bind("<Configure>", _actualizar_scrollregion)
+        canvas.bind("<Configure>", _ajustar_ancho)
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        def _bind_wheel(event):
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        def _unbind_wheel(event):
+            canvas.unbind_all("<MouseWheel>")
+
+        canvas.bind("<Enter>", _bind_wheel)
+        canvas.bind("<Leave>", _unbind_wheel)
+
+        return frame_interior
 
     # ------------------------------------------------------------------
     # TAB 1: Parámetros
     # ------------------------------------------------------------------
     def _armar_tab_parametros(self):
-        contenedor = ttk.Frame(self.tab_parametros, style="TFrame")
-        contenedor.pack(fill="both", expand=True, padx=20, pady=20)
+        contenedor = self._crear_area_scrollable(self.tab_parametros)
 
         ttk.Label(contenedor, text="Configuración del sistema", style="Titulo.TLabel").pack(anchor="w", pady=(0, 14))
 
@@ -254,8 +278,8 @@ class InterfazApp:
         ttk.Entry(frame_control, textvariable=self.param_h, width=10).grid(row=2, column=3, padx=4)
 
         ttk.Label(frame_control, text="Distribución para Salas:", style="Panel.TLabel").grid(row=3, column=0, sticky="w", padx=10, pady=6)
-        cb_dist = ttk.Combobox(frame_control, textvariable=self.dist_salas, values=["Normal", "Uniforme"], state="readonly", width=12)
-        cb_dist.grid(row=3, column=1, padx=4)
+        ttk.Label(frame_control, text="Normal (fija)", style="Panel.TLabel",
+                  font=("Segoe UI", 9, "bold")).grid(row=3, column=1, sticky="w", padx=4)
 
         # --- Panel de Tiempos de Salas ---
         frame_salas = self._crear_panel(contenedor, "Tiempos en Salas por Horario (Media, Desv)")
@@ -298,20 +322,90 @@ class InterfazApp:
     # ------------------------------------------------------------------
     # TAB 2: Vector de estado (detalle completo por visitante)
     # ------------------------------------------------------------------
+    # Cantidad de "columnas de visitante" (Estado + Hora de llegada) que
+    # se agregan al final de la planilla, una por cada visitante presente
+    # en el sistema en ese instante (Visitante 1, Visitante 2, ...). Si en
+    # algún evento hay más visitantes activos que columnas disponibles, la
+    # última columna avisa "+N más" en vez de cortar la info sin aviso.
+    MAX_VISITANTES_MOSTRADOS = 20
+
+    # Definición de columnas de la planilla del vector de estado: cada
+    # tupla es (clave_en_la_fila, encabezado, ancho_px). Es UNA sola tabla
+    # con una fila por evento, igual que una planilla armada a mano.
+    COLUMNAS_VECTOR = [
+        ('Iteracion', 'N°', 45),
+        ('Dia', 'Día', 35),
+        # "Hora" y "Reloj" mostraban lo mismo (el reloj de la simulación),
+        # solo que uno en formato HH:MM:SS y el otro en segundos. Se deja
+        # una sola columna (Reloj, en segundos) para no repetir información.
+        ('Reloj_Global', 'Reloj (seg)', 80),
+        ('Evento', 'Evento', 160),
+
+        ('RND1_LlegA', 'RND1 Lleg.A', 75), ('RND2_LlegA', 'RND2 Lleg.A', 75),
+        ('TEntreLlegA', 'T.entre Lleg.A', 85), ('ProxLlegA', 'Próx Lleg.A', 80),
+        ('RND1_LlegB', 'RND1 Lleg.B', 75), ('RND2_LlegB', 'RND2 Lleg.B', 75),
+        ('TEntreLlegB', 'T.entre Lleg.B', 85), ('ProxLlegB', 'Próx Lleg.B', 80),
+        ('RND1_LlegC', 'RND1 Lleg.C', 75), ('RND2_LlegC', 'RND2 Lleg.C', 75),
+        ('TEntreLlegC', 'T.entre Lleg.C', 85), ('ProxLlegC', 'Próx Lleg.C', 80),
+
+        ('RND_Informes', 'RND Informes', 80), ('Informe', 'Informe SI/NO', 85),
+        ('RND_EligeVent', 'RND Elige Vent', 90), ('Ventanilla', 'Ventanilla Elegida', 100),
+        ('ColaV1', 'Cola V1', 55), ('ColaV2', 'Cola V2', 55),
+
+        ('V1E1_Estado', 'V1-Emp1 Estado', 120), ('V1E1_Fin', 'V1-Emp1 Fin At.', 80),
+        ('V1E2_Estado', 'V1-Emp2 Estado', 120), ('V1E2_Fin', 'V1-Emp2 Fin At.', 80),
+        ('V2E1_Estado', 'V2-Emp1 Estado', 120), ('V2E1_Fin', 'V2-Emp1 Fin At.', 80),
+        ('V2E2_Estado', 'V2-Emp2 Estado', 120), ('V2E2_Fin', 'V2-Emp2 Fin At.', 80),
+
+        ('RND_T_Foll', 'RND T.Folletos', 85), ('T_Foll', 'T.Folletos', 70), ('Fin_Foll', 'Fin Folletos', 80),
+
+        ('PersPintura', 'Personas Pintura', 90),
+        ('RND_T_Pint', 'RND T.Pintura', 110), ('T_Pint', 'T.Pintura', 70), ('Fin_Pint', 'Fin Pintura', 80),
+
+        ('RND_VaFoto', 'RND Va Foto?', 80), ('VaFoto', 'Va Foto SI/NO', 85),
+        ('PersFoto', 'Personas Foto', 85),
+        ('RND_T_Foto', 'RND T.Foto', 100), ('T_Foto', 'T.Foto', 65), ('Fin_Foto', 'Fin Foto', 80),
+
+        ('RND_Edad', 'RND Edad', 65), ('Edad', 'Edad (Trunc)', 75), ('EsMayorEdad', 'Es Mayor de Edad', 100),
+        ('RND_TomaBirra', 'RND Toma Birra?', 90), ('TomaBirra', 'Toma Birra SI/NO', 110),
+        ('ColaStand', 'Cola Stand', 70),
+        ('CervE1_Estado', 'Cerv-Serv1 Estado', 130), ('CervE1_Fin', 'Cerv-Serv1 Fin At.', 85),
+        ('CervE2_Estado', 'Cerv-Serv2 Estado', 130), ('CervE2_Fin', 'Cerv-Serv2 Fin At.', 85),
+        ('RND_TpoServ', 'RND Tpo Servir', 85), ('TpoServ', 'Tpo Servir', 70), ('TpoTomarRK', 'Tpo Tomar (RK)', 90),
+
+        ('ProxControl15', 'Próx Control 15m', 100),
+        ('Reg15Pint', 'Reg 15m Pint.', 80), ('Reg15Foto', 'Reg 15m Foto', 80),
+
+        ('AC_EsperaV1', 'AC Espera V1', 85), ('ContClientesV1', 'Cont. Clientes V1', 90),
+        ('AC_EsperaV2', 'AC Espera V2', 85), ('ContClientesV2', 'Cont. Clientes V2', 90),
+        ('AC_Permanencia', 'AC T.Permanencia', 100), ('ContSalen', 'Cont. Visit. Salen', 95),
+        ('ContBirras', 'Cont. Birras', 75), ('AC_Edades', 'AC Edades Birra', 90),
+        ('ContDirecto', 'Cont. Directo Muestra', 100),
+    ]
+
+    # Después de los contadores/acumuladores, va el detalle de cada
+    # visitante presente en el sistema en ese instante: "Visitante 1"
+    # (Estado + Hora de llegada), "Visitante 2", etc.
+    for _i in range(1, MAX_VISITANTES_MOSTRADOS + 1):
+        COLUMNAS_VECTOR.append((f'Vis{_i}_Estado', f'Visitante {_i} - Estado', 130))
+        COLUMNAS_VECTOR.append((f'Vis{_i}_Llegada', f'Visitante {_i} - H.Llegada', 95))
+    del _i
+
     def _armar_tab_vector(self):
         contenedor = ttk.Frame(self.tab_vector, style="TFrame")
         contenedor.pack(fill="both", expand=True, padx=12, pady=12)
 
         ttk.Label(contenedor, text="Vector de estado", style="Titulo.TLabel").pack(anchor="w", pady=(0, 8))
         ttk.Label(contenedor,
-                  text="Seleccioná una fila para ver el detalle completo de cada visitante activo en ese instante (atributos y RNDs usados).",
-                  style="TLabel", wraplength=900).pack(anchor="w", pady=(0, 8))
-
-        panel_split = ttk.Frame(contenedor, style="TFrame")
-        panel_split.pack(fill="both", expand=True)
+                  text="Una fila por evento, con todos los números aleatorios, estados de empleados/colas y acumuladores "
+                       "usados en ese instante (las columnas transitorias quedan en blanco cuando no corresponden a ese evento). "
+                       f"Al final de la planilla se listan hasta {self.MAX_VISITANTES_MOSTRADOS} visitantes activos "
+                       "(Visitante 1, Visitante 2, ...) con su Estado y Hora de llegada. "
+                       "Desplazate horizontalmente (o Shift + rueda del mouse) para ver todas las columnas.",
+                  style="TLabel", wraplength=1100).pack(anchor="w", pady=(0, 8))
 
         # --- Controles Superiores ---
-        frame_controles = ttk.Frame(panel_split, style="TFrame")
+        frame_controles = ttk.Frame(contenedor, style="TFrame")
         frame_controles.pack(side="top", fill="x", pady=(0, 10))
 
         ttk.Label(frame_controles, text="Desde iteración (j):", style="Panel.TLabel").pack(side="left", padx=(0, 5))
@@ -323,29 +417,24 @@ class InterfazApp:
         ttk.Button(frame_controles, text="Actualizar Vista", style="Accion.TButton", command=self.actualizar_vista_vector).pack(side="left", padx=10)
         ttk.Button(frame_controles, text="Ver Estado Gráfico", style="Accion.TButton", command=self.abrir_visualizacion_grafica).pack(side="left", padx=10)
 
-        # --- Tabla principal (iteraciones) ---
-        frame_tabla = ttk.Frame(panel_split, style="TFrame")
+        # --- Tabla única (planilla completa) ---
+        # OJO: frame_tabla usa pack_propagate(False) a propósito. Sin esto,
+        # el Treeview (que tiene ~65 columnas y pide más de 5000px de ancho
+        # para mostrarlas todas sin scroll) infla el tamaño pedido por esta
+        # pestaña, y como el Notebook se agranda para la pestaña más grande,
+        # terminaba agrandando TODA la ventana más allá de la pantalla. Con
+        # esto, la tabla queda contenida en el espacio real disponible y las
+        # columnas de más se ven moviendo la scrollbar horizontal (o con
+        # Shift + rueda del mouse).
+        frame_tabla = tk.Frame(contenedor, bg=COLOR_FONDO)
         frame_tabla.pack(side="top", fill="both", expand=True)
+        frame_tabla.pack_propagate(False)
 
-        columnas = ('Iteracion', 'Dia', 'Hora', 'Reloj_Global', 'Evento',
-                    'ProxA', 'RNDA', 'ProxB', 'RNDB', 'ProxC', 'RNDC',
-                    'ColaV1', 'ColaV2', 'Pintura', 'ColaCerveza', 'ServLibres', 'Fotografia', 'Activos')
-        self.tree = ttk.Treeview(frame_tabla, columns=columnas, show='headings', height=14)
-        encabezados = {
-            'Iteracion': 'Iter.', 'Dia': 'Día', 'Hora': 'Hora', 'Reloj_Global': 'Reloj (s)',
-            'Evento': 'Evento', 
-            'ProxA': 'Próx. A', 'RNDA': 'RND L. A', 'ProxB': 'Próx. B', 'RNDB': 'RND L. B', 'ProxC': 'Próx. C', 'RNDC': 'RND L. C',
-            'ColaV1': 'Cola V1', 'ColaV2': 'Cola V2', 'Pintura': 'En Pintura',
-            'ColaCerveza': 'Cola Cerveza', 'ServLibres': 'Serv. Libres', 'Fotografia': 'En Fotografía',
-            'Activos': '# Activos'
-        }
-        anchos = {'Iteracion': 50, 'Dia': 40, 'Hora': 65, 'Reloj_Global': 80, 'Evento': 170,
-                  'ProxA': 65, 'RNDA': 80, 'ProxB': 65, 'RNDB': 80, 'ProxC': 65, 'RNDC': 80,
-                  'ColaV1': 65, 'ColaV2': 65, 'Pintura': 75, 'ColaCerveza': 90, 'ServLibres': 85,
-                  'Fotografia': 90, 'Activos': 70}
-        for col in columnas:
-            self.tree.heading(col, text=encabezados[col])
-            self.tree.column(col, width=anchos[col], anchor="center")
+        claves = [c[0] for c in self.COLUMNAS_VECTOR]
+        self.tree = ttk.Treeview(frame_tabla, columns=claves, show='headings', height=22)
+        for clave, encabezado, ancho in self.COLUMNAS_VECTOR:
+            self.tree.heading(clave, text=encabezado)
+            self.tree.column(clave, width=ancho, anchor="center", stretch=False)
 
         scroll_y = ttk.Scrollbar(frame_tabla, orient="vertical", command=self.tree.yview)
         scroll_x = ttk.Scrollbar(frame_tabla, orient="horizontal", command=self.tree.xview)
@@ -357,76 +446,25 @@ class InterfazApp:
         frame_tabla.grid_rowconfigure(0, weight=1)
         frame_tabla.grid_columnconfigure(0, weight=1)
 
-        self.tree.bind("<<TreeviewSelect>>", self._mostrar_detalle_fila)
+        # Shift + rueda del mouse = scroll horizontal (más cómodo que ir a
+        # buscar la barrita de abajo cuando hay tantas columnas).
+        def _scroll_horizontal(event):
+            self.tree.xview_scroll(int(-1 * (event.delta / 120)), "units")
+        self.tree.bind("<Shift-MouseWheel>", _scroll_horizontal)
 
-        # --- Panel de detalle de visitantes de la fila seleccionada ---
-        frame_detalle = ttk.Labelframe(panel_split, text="Detalle de visitantes activos en la fila seleccionada", style="TLabelframe")
-        frame_detalle.pack(side="bottom", fill="both", expand=False, pady=(10, 0))
-
-        columnas_det = ('ID', 'Puerta', 'Edad', 'RND_Edad', 'Estado', 'Sala', 'Destino', 'Llegada', 
-                        'RND_Foll', 'Res_Foll', 'RND_Vent', 'Res_Vent', 
-                        'RND_T_Foll', 'Dur_T_Foll', 'Fin_T_Foll', 
-                        'RND_T_Pint', 'Dur_T_Pint', 'Fin_T_Pint', 
-                        'RND_Foto', 'Res_Foto', 
-                        'RND_Cerv', 'Res_Cerv', 'RND_T_Cerv', 'Dur_T_Cerv', 'Fin_T_Cerv', 
-                        'RND_T_Foto', 'Dur_T_Foto', 'Fin_T_Foto')
-        self.tree_detalle = ttk.Treeview(frame_detalle, columns=columnas_det, show='headings', height=8)
-        for col in columnas_det:
-            self.tree_detalle.heading(col, text=col)
-            # Ajustamos anchos según contenido
-            if col in ('Estado', 'Destino'):
-                width = 120
-            elif col in ('Res_Foll', 'Res_Vent', 'Res_Foto', 'Res_Cerv'):
-                width = 70
-            elif col.startswith('Dur_T_') or col.startswith('Fin_T_'):
-                width = 80
-            else:
-                width = 80
-            self.tree_detalle.column(col, width=width, anchor="center")
-        scroll_det = ttk.Scrollbar(frame_detalle, orient="vertical", command=self.tree_detalle.yview)
-        self.tree_detalle.configure(yscrollcommand=scroll_det.set)
-        self.tree_detalle.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
-        scroll_det.pack(side="right", fill="y", pady=8)
-
-        self._filas_guardadas = []  # cache para poder reconstruir el detalle al seleccionar
-
-    def _mostrar_detalle_fila(self, event):
-        seleccion = self.tree.selection()
-        if not seleccion:
-            return
-        idx = self.tree.index(seleccion[0])
-        if idx >= len(self._filas_guardadas):
-            return
-        fila = self._filas_guardadas[idx]
-
-        for row in self.tree_detalle.get_children():
-            self.tree_detalle.delete(row)
-
-        for vis in fila.get('Visitantes_Activos_Detalle', []):
-            self.tree_detalle.insert('', 'end', values=(
-                vis['ID'], vis['Puerta'], vis['Edad'], vis['RND_Edad'],
-                vis['Estado'], vis['Sala'], vis.get('Destino', ''), vis['Llegada'],
-                vis.get('RND_Dec_Folletos', ''), vis.get('Res_Folletos', ''),
-                vis.get('RND_Vent_Elegida', ''), vis.get('Res_Vent', ''),
-                vis.get('RND_Tiempo_Foll', ''), vis.get('Dur_Tiempo_Foll', ''), vis.get('Fin_Tiempo_Foll', ''),
-                vis.get('RND_Tiempo_Pintura', ''), vis.get('Dur_Tiempo_Pintura', ''), vis.get('Fin_Tiempo_Pintura', ''),
-                vis.get('RND_Dec_Foto', ''), vis.get('Res_Foto', ''),
-                vis.get('RND_Dec_Cerveza', ''), vis.get('Res_Cerveza', ''),
-                vis.get('RND_Tiempo_Cerveza', ''), vis.get('Dur_Tiempo_Cerveza', ''), vis.get('Fin_Tiempo_Cerveza', ''),
-                vis.get('RND_Tiempo_Foto', ''), vis.get('Dur_Tiempo_Foto', ''), vis.get('Fin_Tiempo_Foto', '')
-            ))
+        self._filas_guardadas = []  # cache para "Ver Estado Gráfico"
 
     def actualizar_vista_vector(self):
         if not hasattr(self, 'todas_las_filas_simulacion'):
             messagebox.showinfo("Atención", "Primero debés ejecutar una simulación.")
             return
-            
+
         j_str = self.param_j.get().strip()
         if not j_str.isdigit():
             messagebox.showerror("Error", "El valor de j debe ser un número entero.")
             return
         desde_j = int(j_str)
-        
+
         i_str = self.param_i.get().strip()
         if i_str == "":
             cantidad_i = float('inf')
@@ -438,26 +476,47 @@ class InterfazApp:
 
         for row in self.tree.get_children():
             self.tree.delete(row)
-            
+
         filas_a_mostrar = [
-            f for f in self.todas_las_filas_simulacion 
+            f for f in self.todas_las_filas_simulacion
             if desde_j <= f['Iteracion'] <= (desde_j + cantidad_i)
         ]
-        
+
         self._filas_guardadas = filas_a_mostrar
         for fila in filas_a_mostrar:
-            self.tree.insert('', 'end', values=(
-                fila['Iteracion'], fila['Dia'], fila['Hora_Aprox'], fila['Reloj_Global'], fila['Evento'],
-                fila.get('Prox_Lleg_A', ''), fila.get('RND_Lleg_A', ''),
-                fila.get('Prox_Lleg_B', ''), fila.get('RND_Lleg_B', ''),
-                fila.get('Prox_Lleg_C', ''), fila.get('RND_Lleg_C', ''),
-                fila['En_Cola_Informes_V1'], fila['En_Cola_Informes_V2'], fila['En_Pintura'],
-                fila['En_Cola_Cerveza'], fila['Servidores_Cerveza_Libres'], fila['En_Fotografia'],
-                fila['Cantidad_Visitantes_Activos']
-            ))
+            self.tree.insert('', 'end', values=self._valores_fila_para_tabla(fila))
 
-        for row in self.tree_detalle.get_children():
-            self.tree_detalle.delete(row)
+    def _valores_fila_para_tabla(self, fila):
+        """
+        Arma la lista de valores de una fila para el Treeview, en el mismo
+        orden que COLUMNAS_VECTOR. Las columnas fijas salen directo de la
+        fila; las columnas "Visitante 1", "Visitante 2", ... se completan
+        con el Estado y la Hora de llegada de cada visitante activo en ese
+        instante (ordenados por ID). Si hay más visitantes activos que
+        columnas disponibles, la última columna avisa "+N más" en vez de
+        cortar la info sin explicación.
+        """
+        claves_fijas = [c[0] for c in self.COLUMNAS_VECTOR if not c[0].startswith('Vis')]
+        valores = [fila.get(clave, '') for clave in claves_fijas]
+
+        visitantes = sorted(fila.get('Visitantes_Activos_Detalle', []), key=lambda v: v['ID'])
+        n = self.MAX_VISITANTES_MOSTRADOS
+        for idx in range(n):
+            if idx >= len(visitantes):
+                valores.append('')
+                valores.append('')
+                continue
+
+            if idx == n - 1 and len(visitantes) > n:
+                restantes = len(visitantes) - idx
+                valores.append(f"+{restantes} más")
+                valores.append('')
+            else:
+                v = visitantes[idx]
+                valores.append(v.get('Estado', ''))
+                valores.append(v.get('Hora_Llegada', ''))
+
+        return valores
     # ------------------------------------------------------------------
     # TAB 3: Métricas
     # ------------------------------------------------------------------
@@ -647,7 +706,6 @@ class InterfazApp:
                 'prob_cerveza': self.prob_cerveza.get() / 100.0,
                 'tiempo_x': self.param_x.get(),
                 'rk_h': self.param_h.get(),
-                'dist_salas': self.dist_salas.get()
             }
         except tk.TclError:
             messagebox.showerror("Error", "Revisá que todos los parámetros sean números válidos.")

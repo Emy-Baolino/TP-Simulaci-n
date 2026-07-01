@@ -93,6 +93,7 @@ class Visitante:
             "Sala": self.sala_actual,
             "Destino": self.destino if self.destino is not None else "",
             "Llegada": round(self.reloj_llegada, 2),
+            "Hora_Llegada": simulador.formatear_hora_reloj(self.reloj_llegada) if simulador is not None else "",
             "RND_Dec_Folletos": round(self.rnd_decision_folletos, 4) if self.rnd_decision_folletos is not None else "",
             "Res_Folletos": "Sí" if self.fue_a_folletos is True else ("No" if self.fue_a_folletos is False else ""),
             "RND_Vent_Elegida": round(self.rnd_ventanilla_elegida, 4) if self.rnd_ventanilla_elegida is not None else "",
@@ -113,4 +114,4 @@ class Visitante:
             "RND_Tiempo_Foto": rnd_foto_str,
             "Dur_Tiempo_Foto": round(self.duracion_fotografia, 2) if self.duracion_fotografia is not None else "",
             "Fin_Tiempo_Foto": simulador.formatear_hora_reloj(self.fin_fotografia_reloj) if (self.fin_fotografia_reloj is not None and simulador is not None) else ""
-        }   
+        }
